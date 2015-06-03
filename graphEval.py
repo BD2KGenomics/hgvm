@@ -23,7 +23,7 @@ def getAlleles(url):
 	while success==True:
 		alleleNumber+=1
 		try:
-			text=urllib2.urlopen(url+'/v0.6.a/alleles/'+str(alleleNumber)).read()
+			text=urllib2.urlopen(url+'/alleles/'+str(alleleNumber)).read()
 			json_=json.loads(text)
 			id_=int(json_['id'])
 			name=json_['name'].split('.')[-1]
@@ -239,7 +239,8 @@ def getRefOverlap(allelePathItemList,refDict):
 def parseArgs():
 	parser = argparse.ArgumentParser(description="""Performs the specified evaluation on a specified graph server.
 		Requires a url to be supplied from the user.""")
-	parser.add_argument('url',type=str,help="""A string containing the url of the graph server to be evaluated.""")
+	parser.add_argument('url',type=str,help="""A string containing the url of the graph server to be evaluated.
+		  Must include a version number at the end of the url, e.g. 'v0.6.g' """)
 	parser.add_argument('--align2ref', action='store_const', const=True,
 		help="""Compares each allele returned by the server to the reference allele, returning a percent overlap.
 		Assumes that the reference allele is named "ref", or "ref.ref".""")
