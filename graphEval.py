@@ -56,16 +56,14 @@ def maf2Indices(inputFile):
 	"""
 	Extracts from the maf file input by the user a dictionary containing
 	allele names as keys. Values are lists of integers with lengths equal to
-	the lengths of the allele sequences; integers correspond to the index of
-	the reference base that the allele base is aligned to (or -1 if the
-	base is not aligned.)
+	the lengths of the allele sequences; integers correspond to the 1-based index of
+	the reference base that the allele base is aligned to (or 0 if the
+	base is not aligned.)  If the alt base aligns to the '-' strand of the ref,
+	the integer will be negative.
 
 	ToDo: This program currently assumes that there is only one
 	block per MAF file, which is not generally true of the format,
 	but happens to be true of the GRC maf files.
-
-	ToDo: The program does not currently track the strand of the reference
-	that the allele aligns to.
 	"""
 	print("Converting maf file into alignment indices...")
 	altDict=defaultdict(list)
@@ -89,8 +87,8 @@ def maf2Indices(inputFile):
 			else:
 				raise Exception("strand is not '+' or '-'.")
 			if name not in altDict and name!='ref':
-				altDict[name]=[-1]*sourceLength
-	refIndex=-1
+				altDict[name]=[0]*sourceLength
+	refIndex=0
 	for letterList in izip(*sequenceList):
 		if letterList[0]!='-':refIndex+=1
 		for info,altLetter in izip(infoList[1:],letterList[1:]):
@@ -108,11 +106,11 @@ def maf2Indices(inputFile):
 				if altLetter=='-':
 					pass
 				else:
-					if altDict[name][altIndex]==-1:
-						altDict[name][altIndex]=refIndex
 					if strand=='-':
+						altDict[name][altIndex]=-refIndex
 						cursorDict[seqID]-=1
 					else:
+						altDict[name][altIndex]=refIndex
 						cursorDict[seqID]+=1
 	return altDict
 
@@ -120,17 +118,15 @@ def graph2Indices(alleleDict):
 	"""
 	Extracts from the graph server alleles input by the user a dictionary 
 	containing allele names as keys. Values are lists of integers with lengths 
-	equal to the lengths of the allele sequences; integers correspond to the index of
-	the reference base that the allele base is aligned to (or -1 if the
-	base is not aligned.)
-
-	ToDo: The program does not currently track the strand of the reference
-	that the allele aligns to.
+	equal to the lengths of the allele sequences; integers correspond to the 1-based 
+	index of the reference base that the allele base is aligned to (or 0 if the
+	base is not aligned.)  If the alt base aligns to the '-' strand of the ref,
+	the integer will be negative.
 	"""
 	print("Converting graph alleles into alignment indices...")
 	altDict=defaultdict(list)
 	refSegMap=defaultdict(dict)
-	refIndex=0
+	refIndex=1
 	#Record which sequence bases map to which ref bases
 	for pathItem in alleleDict['ref']:
 		seqID=pathItem['seq']
@@ -138,11 +134,11 @@ def graph2Indices(alleleDict):
 		start=pathItem['pos']
 		length=pathItem['length']
 		if strand=='POS_STRAND':
-			for seqIndex in range(start,start+length):
+			for seqIndex in xrange(start+1,start+length+1):
 				refSegMap[seqID][seqIndex]=refIndex
 				refIndex+=1
 		else:
-			for seqIndex in range(start,start-length,-1):
+			for seqIndex in xrange(-start-1,-start+length-1):
 				refSegMap[seqID][seqIndex]=refIndex
 				refIndex+=1
 	for name in alleleDict:
@@ -154,19 +150,23 @@ def graph2Indices(alleleDict):
 				length=pathItem['length']
 				if seqID in refSegMap:
 					if strand=='POS_STRAND':
-						for seqIndex in range(start,start+length):
+						for seqIndex in xrange(start+1,start+length+1):
 							if seqIndex in refSegMap[seqID]:
 								altDict[name].append(refSegMap[seqID][seqIndex])
+							elif -seqIndex in refSegMap[seqID]:
+								altDict[name].append(-refSegMap[seqID][-seqIndex])
 							else:
-								altDict[name].append(-1)
+								altDict[name].append(0)
 					else:
-						for seqIndex in range(start,start-length,-1):
+						for seqIndex in xrange(-start-1,-start+length-1):
 							if seqIndex in refSegMap[seqID]:
 								altDict[name].append(refSegMap[seqID][seqIndex])
+							elif -seqIndex in refSegMap[seqID]:
+								altDict[name].append(-refSegMap[seqID][-seqIndex])
 							else:
-								altDict[name].append(-1)
+								altDict[name].append(0)
 				else:
-					altDict[name]+=[-1]*length
+					altDict[name]+=[0]*length
 	return altDict
 
 def mergeRefItems(refPathList):
@@ -240,15 +240,13 @@ def parseArgs():
 	parser = argparse.ArgumentParser(description="""Performs the specified evaluation on a specified graph server.
 		Requires a url to be supplied from the user.""")
 	parser.add_argument('url',type=str,help="""A string containing the url of the graph server to be evaluated.""")
-	parser.add_argument('--align2ref', dest='eval', action='store_const', const='getRefOverlap',
+	parser.add_argument('--align2ref', action='store_const', const=True,
 		help="""Compares each allele returned by the server to the reference allele, returning a percent overlap.
 		Assumes that the reference allele is named "ref", or "ref.ref".""")
-	parser.add_argument('--maf', dest='eval',action='store_const',const='compareGraph2MAF',
-		help="""Compares the graph-alignments of each allele to the reference, to the corresponding graph-alignments
-		in a separate MAF file, specified using the "--in" argument.  Assumes the reference allele is named
-		'ref' or 'ref.ref'.""")
-	parser.add_argument('--in',type=file,dest='input',help="""Specifies the MAF file to be read when performing
-		the "--maf" evaluation.""")
+	parser.add_argument('--maf',type=file, help="""Compares the graph-alignments of each allele to the reference, 
+		to the corresponding graph-alignments in a separate MAF file.  Requires the name of the maf file.  
+		Assumes the reference allele is named 'ref' or 'ref.ref'.  Also currently assumes the MAF only contains
+		a single block.""")
 	args = parser.parse_args()
 	return args
 
@@ -256,7 +254,7 @@ def parseArgs():
 def main():
 	args=parseArgs()
 
-	if args.eval=="getRefOverlap":
+	if args.align2ref:
 		alleleDict=getAlleles(args.url)
 		refAllele=alleleDict['ref']
 		refDict=mergeRefItems(refAllele)
@@ -264,27 +262,44 @@ def main():
 			refOverlapFraction=getRefOverlap(allele,refDict)
 			print(refOverlapFraction)
 
-	elif args.eval=="compareGraph2MAF":
+	elif args.maf:
 		alleleDict=getAlleles(args.url)
 		graphAltDict=graph2Indices(alleleDict)
-		mafAltDict=maf2Indices(args.input)
+		mafAltDict=maf2Indices(args.maf)
 		assert set(mafAltDict.keys())==set(graphAltDict.keys())
 		for alt in mafAltDict:
 			assert len(mafAltDict[alt])==len(graphAltDict[alt])
 		print("Computing precision and recall...\n")
+		totalMatchCount=0
+		totalNumMafAlignedBases=0
+		totalNumGraphAlignedBases=0
 		for alt in mafAltDict:
 			mafAlt=mafAltDict[alt]
 			graphAlt=graphAltDict[alt]
-			matchCount=sum(map(lambda n:1 if n[0]!=-1 and n[0]==n[1] else 0,izip(mafAlt,graphAlt)))
-			try: precision=matchCount/len([i for i in graphAlt if i!=-1])
+			matchCount=sum(map(lambda n:1 if n[0]!=0 and n[0]==n[1] else 0,izip(mafAlt,graphAlt)))
+			numMafAlignedBases=len([i for i in mafAlt if i!=0])
+			numGraphAlignedBases=len([i for i in graphAlt if i!=0])
+			totalMatchCount+=matchCount
+			totalNumMafAlignedBases+=numMafAlignedBases
+			totalNumGraphAlignedBases+=numGraphAlignedBases
+			try: precision=matchCount/numGraphAlignedBases
 			except ZeroDivisionError:
 				precision=0
 				print("ZeroDivisionError when computing precision for {}.".format(alt))
-			try: recall=matchCount/len([i for i in mafAlt if i!=-1])
+			try: recall=matchCount/numMafAlignedBases
 			except ZeroDivisionError:
 				recall=0
 				print("ZeroDivisionError when computing recall for {}.".format(alt))
 			print("Allele: {}\nPrecision: {:.3f}\nRecall: {:.3f}\n".format(alt,precision,recall))
+		try: avePrecision=totalMatchCount/totalNumGraphAlignedBases
+		except ZeroDivisionError:
+			avePrecision=0
+			print("ZeroDivisionError when computing average precision.")
+		try: aveRecall=totalMatchCount/totalNumMafAlignedBases
+		except ZeroDivisionError:
+			aveRecall=0
+			print("ZeroDivisionError when computing average recall.")
+		print("Overall\nPrecision: {:.3f}\nRecall: {:.3f}".format(avePrecision,aveRecall))
 	else:
 		print("Please specify an evaluation option.")
 
